@@ -1,50 +1,67 @@
-const express = require('express');
+const express = require("express");
+const cloudinary = require("cloudinary")
+const multer = require("multer")
+const dotenv = require("dotenv");
+
+dotenv.config();
 const app = express();
-const upload = require('./multer');
-const uploads = require('./cloudinary');
-const fs = require('fs');
-
+app.use(express.static(__dirname + "/public"));
+app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+const {
+  NODE_ENV,
+  PORT: productionPort,
+  IP: productionIP,
+  CLOUD_NAME,
+  CLOUDINARY_API_KEY,
+  CLOUDINARY_API_SECRET,
+} = process.env;
 
 
-app.get('/',(req,res)=>{
-    res.send('hello world');
-})
+const storage = multer.diskStorage({
+  filename: function (req, file, cb) {
+    cb(null, file.fieldname + "-" + Date.now());
+  },
+});
 
-// make a port request
-app.use('/upload-images', upload.array('image'), async(req,res)=>{
+cloudinary.v2.config({
+  cloud_name: CLOUD_NAME,
+  api_key: CLOUDINARY_API_KEY,
+  api_secret: CLOUDINARY_API_SECRET,
+});
 
-    const uploader = async(path)=> await uploads(path, 'Images')
-    try{
-        if(req.method === 'POST'){
-            const urls = [];
-            const files = req.files
-    
-            for(const file of files){
-                const {path} = file
-                const newPath = await uploader(path);
-                urls.push(newPath);
-    
-                fs.unlink(path);
-            }
-    
-            res.status(200).json({
-                message : 'Images Uploaded Successfully',
-                data : urls
-            })
-        }else{
-            res.status(405).json({
-                err : "Images not uploaded successfully"
-            })
-        }
-    }catch(err){
-        res.json({
-            err
-        })
-    }
-})
+const upload = multer({ storage });
 
-app.listen(5000,()=>{
-    console.log("server is listening or port 5000");
-})
+app.get("/", (req, res) => {
+  return res.status(200).json({
+    message: "Multiple uploader api",
+  });
+});
 
+app.post("/images", upload.array("pictures", 10), async (req, res) => {
+  try {
+    let pictureFiles = req.files;
+    if (!pictureFiles)
+      return res.status(400).json({ message: "No picture attached!" });
+    //map through images and create a promise array using cloudinary upload function
+    let multiplePicturePromise = pictureFiles.map((picture) =>
+      cloudinary.v2.uploader.upload(picture.path)
+    );
+    let imageResponses = await Promise.all(multiplePicturePromise);
+    res.status(200).json({ images: imageResponses });
+  } catch (err) {
+    res.status(500).json({
+      message: err.message,
+    });
+  }
+});
+
+if (NODE_ENV === "production") {
+  app.listen(productionPort, productionIP, () =>
+    console.log("Multiple uploader api started in production!")
+  );
+} else {
+  app.listen(9000, () =>
+    console.log("Multiple uploader api started in development on port 9000!")
+  );
+}
